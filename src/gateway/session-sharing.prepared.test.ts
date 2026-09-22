@@ -82,7 +82,7 @@ it("uses fresh prepared caller, alias, role, and membership facts without queryi
     ] as const) {
       const sharing = prepareSessionSharing(
         { cfg, client },
-        { aliases, sessionCap, sessionOnlyWriteAuthority: false, isMember: () => member },
+        { aliases, sessionCap, isMember: () => member },
       );
       expect(sharing.roleForTarget(target)).toBe(expectedRole);
       expect(sharing.entryFilter?.(target.canonicalKey, target.entry)).toBe(visible);
@@ -91,12 +91,7 @@ it("uses fresh prepared caller, alias, role, and membership facts without queryi
     client.authenticatedUserProfile!.profileId = oldOwner.id;
     const fresh = prepareSessionSharing(
       { cfg, client },
-      {
-        aliases: new Set([oldOwner.id]),
-        sessionCap: "none",
-        sessionOnlyWriteAuthority: false,
-        isMember: () => false,
-      },
+      { aliases: new Set([oldOwner.id]), sessionCap: "none", isMember: () => false },
     );
     expect(fresh.roleForTarget(target)).toBe("owner");
     expect(fresh.entryFilter?.(target.canonicalKey, target.entry)).toBe(true);

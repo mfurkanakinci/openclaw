@@ -3,7 +3,6 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isIncognitoSessionKey } from "../routing/session-key.js";
 import { prepareGatewayRecipientProfile } from "./expected-profile.js";
 import {
-  hasSessionOnlyWriteAuthority,
   operatorSessionCap,
   resolveGatewayOperatorRoleActor,
   resolveOperatorRolePolicyForAssignment,
@@ -133,16 +132,11 @@ export function prepareSessionSharing(
   prepared?: {
     aliases: ReadonlySet<string>;
     sessionCap: ReturnType<typeof operatorSessionCap>;
-    sessionOnlyWriteAuthority: boolean;
     isMember: (target: SessionSharingTarget, identityId: string) => boolean;
   },
 ) {
   const identity = sharingIdentity(params.client, resolveGatewayOperatorRoleActor(params.client));
   const isCreator = prepareSessionCreatorProfile(identity?.id, prepared?.aliases);
-  const preparedPolicy = prepared && {
-    value: prepared.sessionCap,
-    sessionOnlyWriteAuthority: prepared.sessionOnlyWriteAuthority,
-  };
   const roleForTarget = (target: SessionSharingTarget, isMember?: boolean) =>
     resolveSessionSharingRole(
       {
@@ -151,7 +145,7 @@ export function prepareSessionSharing(
         isMember:
           isMember ?? (prepared && Boolean(identity && prepared.isMember(target, identity.id))),
       },
-      preparedPolicy,
+      prepared && { value: prepared.sessionCap },
       isCreator,
     );
   return {
@@ -162,7 +156,7 @@ export function prepareSessionSharing(
     authorizeTarget: (target: SessionSharingTarget) =>
       authorizeSessionSharingTarget(
         { ...params, target },
-        preparedPolicy && { ...preparedPolicy, role: roleForTarget(target) },
+        prepared && { value: prepared.sessionCap, role: roleForTarget(target) },
       ),
   };
 }
@@ -182,18 +176,17 @@ export function prepareProjectedSessionSharing(params: {
   const profile = identity && retained?.aliases.has(identity.id) ? retained : undefined;
   const roleProfile =
     actor?.kind === "operator" && retained?.aliases.has(actor.profileId) ? retained : undefined;
-  const policy =
+  const sessionCap =
     actor?.kind === "system"
       ? undefined
       : resolveOperatorRolePolicyForAssignment(
           roleProfile?.profileId,
           roleProfile?.role ?? null,
           cfg,
-        );
+        )?.sessions.others;
   return prepareSessionSharing(params, {
     aliases: profile?.aliases ?? new Set(),
-    sessionCap: policy?.sessions.others,
-    sessionOnlyWriteAuthority: hasSessionOnlyWriteAuthority(client, cfg, { value: policy }),
+    sessionCap,
     isMember,
   });
 }

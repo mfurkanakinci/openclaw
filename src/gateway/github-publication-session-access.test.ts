@@ -14,6 +14,7 @@ import {
   githubPublicationTestMocks,
   installGitHubPublicationTestHarness,
 } from "./github-publication.test-support.js";
+import type { OperatorScope } from "./operator-scopes.js";
 import { handleGatewayRequest } from "./server-methods.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import { createSyntheticPluginRuntimeClient } from "./server-plugin-runtime-client.js";
@@ -30,20 +31,22 @@ describe("registered session GitHub publication access", () => {
   });
 
   it.each([
-    { target: "own", policy: "absent", actor: "guest", published: true },
-    { target: "own", policy: "write", actor: "guest", published: true },
-    { target: "foreign", policy: "view", actor: "guest", published: false },
-    { target: "member", policy: "view", actor: "guest", published: false },
-    { target: "foreign", policy: "absent", actor: "guest", published: false },
-    { target: "member", policy: "absent", actor: "guest", published: false },
-    { target: "foreign", policy: "write", actor: "guest", published: false },
-    { target: "member", policy: "write", actor: "guest", published: false },
-    { target: "missing", policy: "absent", actor: "guest", published: false },
-    { target: "foreign", policy: "write", actor: "staff", published: true },
-    { target: "foreign", policy: "absent", actor: "system", published: true },
+    { target: "own", policy: "absent", actor: "guest", outcome: "published" },
+    { target: "own", policy: "write", actor: "guest", outcome: "published" },
+    { target: "foreign", policy: "view", actor: "guest", outcome: "INVALID_REQUEST" },
+    { target: "member", policy: "view", actor: "guest", outcome: "UNAVAILABLE" },
+    { target: "foreign", policy: "absent", actor: "guest", outcome: "UNAVAILABLE" },
+    { target: "member", policy: "absent", actor: "guest", outcome: "UNAVAILABLE" },
+    { target: "foreign", policy: "write", actor: "guest", outcome: "UNAVAILABLE" },
+    { target: "member", policy: "write", actor: "guest", outcome: "UNAVAILABLE" },
+    { target: "missing", policy: "absent", actor: "guest", outcome: "INVALID_REQUEST" },
+    { target: "foreign", policy: "write", actor: "staff", outcome: "published" },
+    { target: "foreign", policy: "absent", actor: "system", outcome: "published" },
+    { target: "own", policy: "write", actor: "mixed", outcome: "published" },
+    { target: "member", policy: "write", actor: "mixed", outcome: "UNAVAILABLE" },
   ] as const)(
     "checks $target target for $actor with role policy=$policy",
-    async ({ target, policy, actor, published }) => {
+    async ({ target, policy, actor, outcome }) => {
       const f = await createRequesterPublicationFixture(vi.fn(), "local", {
         sessionId: SESSION_ID,
         sessionKey: SESSION_KEY,
@@ -53,6 +56,8 @@ describe("registered session GitHub publication access", () => {
       }
       const workspace = f.local;
       const roles = f.config.gateway!.roles!;
+      const requestScopes: OperatorScope[] =
+        actor === "mixed" ? ["operator.read", "operator.approvals", ...guestScopes] : guestScopes;
       setRuntimeConfigSnapshot({
         ...f.config,
         gateway: {
@@ -64,7 +69,11 @@ describe("registered session GitHub publication access", () => {
                   ...roles,
                   definitions: {
                     ...roles.definitions,
-                    guest: { ...roles.definitions.guest!, sessions: { others: policy } },
+                    guest: {
+                      ...roles.definitions.guest!,
+                      scopes: requestScopes,
+                      sessions: { others: policy },
+                    },
                   },
                 },
         },
@@ -77,7 +86,7 @@ describe("registered session GitHub publication access", () => {
             : ensureProfileForEmail("publication-foreign@example.test").id;
       const person = createOperatorWsClient({
         connId: profileId,
-        scopes: actor === "staff" ? ["operator.write"] : guestScopes,
+        scopes: actor === "staff" ? ["operator.write"] : requestScopes,
       });
       person.authenticatedUserProfile = {
         profileId,
@@ -123,7 +132,7 @@ describe("registered session GitHub publication access", () => {
         isWebchatConnect: () => false,
         respond,
       });
-      if (published) {
+      if (outcome === "published") {
         expect(respond).toHaveBeenCalledWith(
           true,
           expect.objectContaining({ status: "published" }),
@@ -133,7 +142,7 @@ describe("registered session GitHub publication access", () => {
         expect(respond).toHaveBeenCalledWith(
           false,
           undefined,
-          expect.objectContaining({ code: "INVALID_REQUEST" }),
+          expect.objectContaining({ code: outcome }),
         );
         expect(request).not.toHaveBeenCalled();
         expect(workspace.effects).toEqual([]);
