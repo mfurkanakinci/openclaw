@@ -165,7 +165,19 @@ function prepareEditArguments(input: unknown): EditToolInput {
   const legacy = args as LegacyEditToolInput;
   if (typeof legacy.oldText === "string" && typeof legacy.newText === "string") {
     const edits = Array.isArray(legacy.edits) ? [...legacy.edits] : [];
-    edits.push({ oldText: legacy.oldText, newText: legacy.newText });
+    const alreadyIncluded = edits.some(
+      (edit: unknown) =>
+        edit !== null &&
+        typeof edit === "object" &&
+        !Array.isArray(edit) &&
+        "oldText" in edit &&
+        "newText" in edit &&
+        edit.oldText === legacy.oldText &&
+        edit.newText === legacy.newText,
+    );
+    if (!alreadyIncluded) {
+      edits.push({ oldText: legacy.oldText, newText: legacy.newText });
+    }
     args.edits = edits;
   }
 
